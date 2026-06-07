@@ -16,7 +16,8 @@ set(PROJECT_SOURCES
 qt_add_executable(LanChat
     MANUAL_FINALIZATION
     ${PROJECT_SOURCES}
-    protocol.cpp
+    main.cpp
+    protocol.h
 )
 
 target_link_libraries(LanChat PRIVATE
