@@ -14,11 +14,13 @@ set(PROJECT_SOURCES
 )
 
 qt_add_executable(LanChat
-MANUAL_FINALIZATION
-main.cpp
-protocol.h
-server.h
-server.cpp
+    MANUAL_FINALIZATION
+    main.cpp
+    protocol.h
+    server.h
+    server.cpp
+    client.h
+    client.cpp
 )
 
 target_link_libraries(LanChat PRIVATE
