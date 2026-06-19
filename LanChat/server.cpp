@@ -21,6 +21,7 @@ void ChatServer :: incomingConnection(qintptr socketDescriptor){
     connect(client , &QTcpSocket :: disconnected, this , &ChatServer::onClientDisconnected);
     qDebug() << "New client connected:" << client->peerAddress().toString();
 }
+
 void ChatServer::OnReadyRead()
 {
     QTcpSocket* sender = qobject_cast<QTcpSocket*>(QObject::sender());
@@ -41,7 +42,6 @@ void ChatServer::onClientDisconnected()
 void ChatServer::broadcastMessage(const QByteArray& data, QTcpSocket* except)
 {
     for (QTcpSocket* client : m_clients) {
-        if (client != except)
-            client->write(data);
+        client->write(data);
     }
 }

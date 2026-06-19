@@ -46,3 +46,7 @@ void ChatClient::onReadyRead()
         emit messageReceived(msg);
     }
 }
+void ChatClient::sendRaw(const QByteArray& data)
+{
+    m_socket->write(data);
+}

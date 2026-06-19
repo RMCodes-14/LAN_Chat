@@ -13,6 +13,7 @@ public:
     void connectToServer(const QString& host, quint16 port = 5050);
     void sendMessage(const QString& text, const QString& username);
     void disconnectFromServer();
+    void sendRaw(const QByteArray& data);
 
 signals:
     void messageReceived(const Message& msg);

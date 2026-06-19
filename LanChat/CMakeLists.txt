@@ -21,6 +21,10 @@ qt_add_executable(LanChat
     server.cpp
     client.h
     client.cpp
+    connectionwindow.h
+    connectionwindow.cpp
+    chatwindow.h
+    chatwindow.cpp
 )
 
 target_link_libraries(LanChat PRIVATE
