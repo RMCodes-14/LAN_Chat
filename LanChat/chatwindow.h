@@ -10,6 +10,8 @@
 #include <QTimer>
 #include "client.h"
 
+
+
 class ChatWindow : public QWidget
 {
     Q_OBJECT
@@ -33,6 +35,7 @@ private:
     void addSystemMessage(const QString& text);
     void scrollToBottom();
 
+
     // Backend
     ChatClient* m_client;
     QString     m_username;
@@ -48,6 +51,7 @@ private:
     QLabel*      m_typingLabel;
     QLineEdit*   m_inputField;
     QPushButton* m_sendBtn;
-
+    QPushButton* m_leaveBtn;  // private mein add karo
     QTimer*      m_typingTimer;
+
 };

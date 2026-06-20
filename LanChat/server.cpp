@@ -27,10 +27,15 @@ void ChatServer::OnReadyRead()
     QTcpSocket* sender = qobject_cast<QTcpSocket*>(QObject::sender());
     while (sender->canReadLine()) {
         QByteArray line = sender->readLine().trimmed();
-        broadcastMessage(line + "\n", sender);
+        Message msg = Message::fromBytes(line);
+
+        if (msg.type == "chat" || msg.type == "typing") {
+            broadcastMessage(line + "\n", sender); // sender ko mat bhejo
+        } else {
+            broadcastMessage(line + "\n", nullptr); // join/leave sabko
+        }
     }
 }
-
 void ChatServer::onClientDisconnected()
 {
     QTcpSocket* client = qobject_cast<QTcpSocket*>(QObject::sender());
@@ -42,6 +47,7 @@ void ChatServer::onClientDisconnected()
 void ChatServer::broadcastMessage(const QByteArray& data, QTcpSocket* except)
 {
     for (QTcpSocket* client : m_clients) {
-        client->write(data);
+        if (client != except)
+            client->write(data);
     }
 }

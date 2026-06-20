@@ -2,6 +2,9 @@
 #include <QScrollBar>
 #include <QDateTime>
 
+// ─────────────────────────────────────────
+//  Constructor
+// ─────────────────────────────────────────
 ChatWindow::ChatWindow(const QString& username,
                        const QString& host,
                        quint16 port,
@@ -11,7 +14,7 @@ ChatWindow::ChatWindow(const QString& username,
     setupUI();
     applyStyles();
 
-    // Backend connect
+
     m_client = new ChatClient(this);
 
     connect(m_client, &ChatClient::messageReceived,
@@ -23,14 +26,18 @@ ChatWindow::ChatWindow(const QString& username,
 
     m_client->connectToServer(host, port);
 
-    // Typing timer
+    // Typing timer — clears label after 2.5s
     m_typingTimer = new QTimer(this);
     m_typingTimer->setSingleShot(true);
     connect(m_typingTimer, &QTimer::timeout, this, [this]() {
         m_typingLabel->clear();
     });
+
 }
 
+// ─────────────────────────────────────────
+//  UI Setup
+// ─────────────────────────────────────────
 void ChatWindow::setupUI()
 {
     setWindowTitle("LanChat");
@@ -40,7 +47,7 @@ void ChatWindow::setupUI()
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
 
-    // ── SIDEBAR ──
+    // ── SIDEBAR ──────────────────────────
     m_sidebar = new QWidget();
     m_sidebar->setObjectName("sidebar");
     m_sidebar->setFixedWidth(220);
@@ -49,7 +56,7 @@ void ChatWindow::setupUI()
     sideLayout->setContentsMargins(0, 0, 0, 0);
     sideLayout->setSpacing(0);
 
-    // Logo area
+    // Logo
     QWidget* logoArea = new QWidget();
     logoArea->setObjectName("logoArea");
     QVBoxLayout* logoLayout = new QVBoxLayout(logoArea);
@@ -66,7 +73,7 @@ void ChatWindow::setupUI()
     logoLayout->addWidget(serverTag);
     sideLayout->addWidget(logoArea);
 
-    // Online label
+    // Section label
     QLabel* onlineSec = new QLabel("ONLINE");
     onlineSec->setObjectName("sectionLabel");
     onlineSec->setContentsMargins(18, 14, 18, 5);
@@ -81,7 +88,7 @@ void ChatWindow::setupUI()
     sideLayout->addWidget(usersContainer);
     sideLayout->addStretch();
 
-    // My profile at bottom
+    // My profile
     QWidget* myProfile = new QWidget();
     myProfile->setObjectName("myProfile");
     QHBoxLayout* profileLayout = new QHBoxLayout(myProfile);
@@ -93,13 +100,13 @@ void ChatWindow::setupUI()
     myAv->setAlignment(Qt::AlignCenter);
 
     QVBoxLayout* myInfo = new QVBoxLayout();
+    myInfo->setSpacing(1);
     QLabel* myName = new QLabel(m_username);
     myName->setObjectName("myName");
     QLabel* myStatus = new QLabel("You");
     myStatus->setObjectName("myStatus");
     myInfo->addWidget(myName);
     myInfo->addWidget(myStatus);
-    myInfo->setSpacing(1);
 
     profileLayout->addWidget(myAv);
     profileLayout->addLayout(myInfo);
@@ -107,7 +114,7 @@ void ChatWindow::setupUI()
 
     root->addWidget(m_sidebar);
 
-    // ── MAIN AREA ──
+    // ── MAIN AREA ─────────────────────────
     QWidget* mainArea = new QWidget();
     mainArea->setObjectName("mainArea");
     QVBoxLayout* mainLayout = new QVBoxLayout(mainArea);
@@ -126,24 +133,29 @@ void ChatWindow::setupUI()
     chatAv->setAlignment(Qt::AlignCenter);
 
     QVBoxLayout* chatInfo = new QVBoxLayout();
+    chatInfo->setSpacing(1);
     QLabel* chatTitle = new QLabel("Group Chat");
     chatTitle->setObjectName("chatTitle");
     QLabel* chatSub = new QLabel("LAN Network");
     chatSub->setObjectName("chatSub");
     chatInfo->addWidget(chatTitle);
     chatInfo->addWidget(chatSub);
-    chatInfo->setSpacing(1);
 
     QLabel* lanBadge = new QLabel("LAN · 192.168.1.x");
     lanBadge->setObjectName("lanBadge");
+
+    // ── LEAVE BUTTON ──
+    m_leaveBtn = new QPushButton("Leave");
+    m_leaveBtn->setObjectName("leaveBtn");
 
     headerLayout->addWidget(chatAv);
     headerLayout->addLayout(chatInfo);
     headerLayout->addStretch();
     headerLayout->addWidget(lanBadge);
+    headerLayout->addWidget(m_leaveBtn);
     mainLayout->addWidget(header);
 
-    // Messages scroll area
+    // Scroll area
     m_scrollArea = new QScrollArea();
     m_scrollArea->setObjectName("scrollArea");
     m_scrollArea->setWidgetResizable(true);
@@ -160,7 +172,7 @@ void ChatWindow::setupUI()
     m_scrollArea->setWidget(m_messagesWidget);
     mainLayout->addWidget(m_scrollArea);
 
-    // Typing indicator
+    // Typing label
     m_typingLabel = new QLabel();
     m_typingLabel->setObjectName("typingLabel");
     m_typingLabel->setContentsMargins(22, 4, 22, 4);
@@ -188,27 +200,58 @@ void ChatWindow::setupUI()
 
     root->addWidget(mainArea);
 
-    // ── SIGNALS ──
+    // ── CONNECT SIGNALS ───────────────────
     connect(m_sendBtn,    &QPushButton::clicked,
             this,         &ChatWindow::onSendClicked);
     connect(m_inputField, &QLineEdit::returnPressed,
             this,         &ChatWindow::onSendClicked);
 
-    // Typing indicator send
+    // Typing broadcast
     connect(m_inputField, &QLineEdit::textChanged, this, [this]() {
         Message msg;
-        msg.type   = "typing";
-        msg.sender = m_username;
+        msg.type      = "typing";
+        msg.sender    = m_username;
+        msg.content   = "";
+        msg.timestamp = "";
         m_client->sendRaw(msg.toBytes());
         m_typingTimer->start(2500);
     });
+
+    // Leave button
+    connect(m_leaveBtn, &QPushButton::clicked, this, [this]() {
+        // Pehle leave message broadcast karo
+        Message msg;
+        msg.type      = "leave";
+        msg.sender    = m_username;
+        msg.content   = "";
+        msg.timestamp = QDateTime::currentDateTime().toString("hh:mm");
+        m_client->sendRaw(msg.toBytes());
+
+        // 100ms baad disconnect karo taake message jaaye pehle
+        QTimer::singleShot(100, this, [this]() {
+            m_client->disconnectFromServer();
+            close();
+        });
+    });
 }
 
+// ─────────────────────────────────────────
+//  Slots
+// ─────────────────────────────────────────
 void ChatWindow::onSendClicked()
 {
     QString text = m_inputField->text().trimmed();
     if (text.isEmpty()) return;
 
+    // Apna message locally add karo — right side
+    Message msg;
+    msg.type      = "chat";
+    msg.sender    = m_username;
+    msg.content   = text;
+    msg.timestamp = QDateTime::currentDateTime().toString("hh:mm");
+    addBubble(msg);
+
+    // Server ko bhejo — doosron ko jaega
     m_client->sendMessage(text, m_username);
     m_inputField->clear();
 }
@@ -216,22 +259,46 @@ void ChatWindow::onSendClicked()
 void ChatWindow::onMessageReceived(const Message& msg)
 {
     if (msg.type == "chat") {
-        addBubble(msg);
-    } else if (msg.type == "join") {
+        if (msg.sender != m_username) {
+            addBubble(msg);
+             // sirf doosron ka message aaye toh sound
+        }
+    }else if (msg.type == "join") {
+        // Sabka join dikhao — apna bhi
         addSystemMessage(msg.sender + " joined the chat");
+
     } else if (msg.type == "leave") {
         addSystemMessage(msg.sender + " left the chat");
+
+    } else if (msg.type == "typing") {
+        // Apna typing indicator khud ko mat dikhao
+        if (msg.sender != m_username) {
+            m_typingLabel->setText(msg.sender + " is typing...");
+            m_typingTimer->start(2500);
+        }
     }
-    else if (msg.type == "typing") {
-    if (msg.sender != m_username) {  // ← yeh check hai?
-        m_typingLabel->setText(msg.sender + " is typing...");
-        QTimer::singleShot(2500, this, [this]() {
-            m_typingLabel->clear();
-        });
-    }
-}
 }
 
+void ChatWindow::onConnected()
+{
+    // Sirf join broadcast karo — locally mat dikhao
+    // Server broadcast karega sabko — tab dikhega
+    Message msg;
+    msg.type      = "join";
+    msg.sender    = m_username;
+    msg.content   = "";
+    msg.timestamp = QDateTime::currentDateTime().toString("hh:mm");
+    m_client->sendRaw(msg.toBytes());
+}
+
+void ChatWindow::onDisconnected()
+{
+    addSystemMessage("Disconnected from server");
+}
+
+// ─────────────────────────────────────────
+//  UI Helpers
+// ─────────────────────────────────────────
 void ChatWindow::addBubble(const Message& msg)
 {
     bool isMe = (msg.sender == m_username);
@@ -241,13 +308,11 @@ void ChatWindow::addBubble(const Message& msg)
     rowLayout->setContentsMargins(0, 2, 0, 2);
     rowLayout->setSpacing(8);
 
-    // Avatar
     QLabel* av = new QLabel(msg.sender.left(2).toUpper());
     av->setFixedSize(26, 26);
     av->setAlignment(Qt::AlignCenter);
     av->setObjectName(isMe ? "avatarMe" : "avatarThem");
 
-    // Bubble content
     QWidget* bubbleCol = new QWidget();
     QVBoxLayout* colLayout = new QVBoxLayout(bubbleCol);
     colLayout->setContentsMargins(0, 0, 0, 0);
@@ -261,7 +326,9 @@ void ChatWindow::addBubble(const Message& msg)
 
     QLabel* bubble = new QLabel(msg.content);
     bubble->setWordWrap(true);
-    bubble->setMaximumWidth(380);
+    /*bubble->setMinimumWidth(200); */  // minimum half screen
+    bubble->setMaximumWidth(420);
+    bubble->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     bubble->setObjectName(isMe ? "bubbleMe" : "bubbleThem");
 
     QLabel* time = new QLabel(msg.timestamp);
@@ -282,6 +349,7 @@ void ChatWindow::addBubble(const Message& msg)
     }
 
     m_messagesLayout->addWidget(row);
+
     scrollToBottom();
 }
 
@@ -303,23 +371,9 @@ void ChatWindow::scrollToBottom()
     });
 }
 
-void ChatWindow::onConnected()
-{
-    addSystemMessage("Connected to server ✓");
-
-    Message msg;
-    msg.type    = "join";
-    msg.sender  = m_username;
-    msg.content = "";
-    msg.timestamp = QDateTime::currentDateTime().toString("hh:mm");
-    m_client->sendRaw(msg.toBytes());
-}
-
-void ChatWindow::onDisconnected()
-{
-    addSystemMessage("Disconnected from server");
-}
-
+// ─────────────────────────────────────────
+//  Styles
+// ─────────────────────────────────────────
 void ChatWindow::applyStyles()
 {
     setStyleSheet(R"(
@@ -374,8 +428,8 @@ void ChatWindow::applyStyles()
             border-bottom: 1px solid #ede6f0;
         }
         QLabel#chatAvatar {
-            background-color: #d8f0e4;
-            color: #3a9460;
+            background-color: #ede0f8;
+            color: #6d28d9;
             border-radius: 11px;
             font-weight: 700;
             font-size: 12px;
@@ -397,6 +451,18 @@ void ChatWindow::applyStyles()
             font-size: 10px;
             color: #a89bb8;
         }
+        QPushButton#leaveBtn {
+            background-color: transparent;
+            border: 1px solid #e8dff0;
+            border-radius: 8px;
+            color: #a89bb8;
+            font-size: 11px;
+            padding: 4px 12px;
+        }
+        QPushButton#leaveBtn:hover {
+            border-color: #f87171;
+            color: #f87171;
+        }
         QScrollArea#scrollArea {
             background-color: #f9f6f2;
             border: none;
@@ -411,6 +477,10 @@ void ChatWindow::applyStyles()
         QScrollBar::handle:vertical {
             background: #e8dff0;
             border-radius: 2px;
+        }
+        QScrollBar::add-line:vertical,
+        QScrollBar::sub-line:vertical {
+            height: 0px;
         }
         QLabel#bubbleMe {
             background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
@@ -441,13 +511,14 @@ void ChatWindow::applyStyles()
         QLabel#systemMsg {
             font-size: 10px;
             color: #c4b8d4;
-            padding: 3px 0;
+            padding: 4px 0;
         }
         QLabel#typingLabel {
-            font-size: 10px;
+            font-size: 14px;
             color: #c4b8d4;
             font-style: italic;
             background-color: #f9f6f2;
+
         }
         QWidget#inputBar {
             background-color: #ffffff;
