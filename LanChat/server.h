@@ -3,7 +3,11 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QList>
+#include <QMap>
 #include "protocol.h"
+
+
+
 
 class ChatServer : public QTcpServer
 {
@@ -18,6 +22,12 @@ private slots:
     void onClientDisconnected();
 private:
     void broadcastMessage(const QByteArray& data , QTcpSocket* except = nullptr);
-    QList<QTcpSocket*>m_clients;
+
+    QList<QTcpSocket*> m_clients;
+    QMap<QTcpSocket*, QString> m_usernames;  // ADD
+    QList<Message> m_history;                // ADD — last 20 msgs
+
+    void broadcastUserList();                // ADD
+    void sendHistory(QTcpSocket* client);    // ADD
 };
 

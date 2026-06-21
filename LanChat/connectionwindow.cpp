@@ -1,4 +1,5 @@
 #include "connectionwindow.h"
+#include <QNetworkInterface>
 
 ConnectionWindow::ConnectionWindow(QWidget* parent)
     : QWidget(parent)
@@ -75,6 +76,24 @@ void ConnectionWindow::setupUI()
     m_startServerBtn->setObjectName("primaryBtn");
     m_startServerBtn->setFixedHeight(48);
 
+    // Real IP detect karo
+    QString localIP = "Unknown";
+    for (const QNetworkInterface& iface : QNetworkInterface::allInterfaces()) {
+        for (const QNetworkAddressEntry& entry : iface.addressEntries()) {
+            QHostAddress addr = entry.ip();
+            if (addr.protocol() == QAbstractSocket::IPv4Protocol
+                && !addr.isLoopback()
+                && addr.toString().startsWith("192.168")) {
+                localIP = addr.toString();
+                break;
+            }
+        }
+    }
+
+    QLabel* ipLabel = new QLabel("Your IP: " + localIP);
+    ipLabel->setObjectName("subLabel");
+    ipLabel->setAlignment(Qt::AlignCenter);
+    serverLayout->addWidget(ipLabel);
     QPushButton* backBtn1 = new QPushButton("← Back");
     backBtn1->setObjectName("ghostBtn");
 

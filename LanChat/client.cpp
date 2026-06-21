@@ -15,6 +15,10 @@ ChatClient::ChatClient(QObject* parent)
 
     connect(m_socket, &QTcpSocket::readyRead,
             this,     &ChatClient::onReadyRead);
+    connect(m_socket, &QTcpSocket::errorOccurred,
+            this, [this](QAbstractSocket::SocketError) {
+                emit connectionError(m_socket->errorString());
+            });
 }
 
 void ChatClient::connectToServer(const QString& host, quint16 port)

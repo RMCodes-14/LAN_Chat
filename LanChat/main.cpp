@@ -14,10 +14,9 @@ int main(int argc, char *argv[])
     QObject::connect(connWindow, &ConnectionWindow::startAsClient,
                      [&](const QString& host, quint16 port, const QString& username) {
                          connWindow->hide();
-                         ChatWindow* chat = new ChatWindow(username, host, port);
+                         ChatWindow* chat = new ChatWindow(username, host, port, false);
                          chat->show();
                      });
-
 
     // Server mode
     QObject::connect(connWindow, &ConnectionWindow::startAsServer,
@@ -25,8 +24,9 @@ int main(int argc, char *argv[])
                          ChatServer* server = new ChatServer();
                          server->startServer(port);
                          connWindow->hide();
-                         ChatWindow* chat = new ChatWindow(username, "127.0.0.1", port);
+                         ChatWindow* chat = new ChatWindow(username, "127.0.0.1", port, true);
                          chat->show();
                      });
+
     return a.exec();
 }

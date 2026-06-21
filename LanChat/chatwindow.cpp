@@ -8,12 +8,12 @@
 ChatWindow::ChatWindow(const QString& username,
                        const QString& host,
                        quint16 port,
+                       bool isServer,
                        QWidget* parent)
-    : QWidget(parent), m_username(username)
+    : QWidget(parent), m_username(username), m_isServer(isServer)
 {
     setupUI();
     applyStyles();
-
 
     m_client = new ChatClient(this);
 
@@ -23,18 +23,21 @@ ChatWindow::ChatWindow(const QString& username,
             this,     &ChatWindow::onConnected);
     connect(m_client, &ChatClient::disconnectedFromServer,
             this,     &ChatWindow::onDisconnected);
+    connect(m_client, &ChatClient::connectionError,
+            this, [this](const QString& err) {
+                QMessageBox::critical(this, "Connection Error",
+                                      "Could not connect:\n" + err);
+                close();
+            });
 
     m_client->connectToServer(host, port);
 
-    // Typing timer — clears label after 2.5s
     m_typingTimer = new QTimer(this);
     m_typingTimer->setSingleShot(true);
     connect(m_typingTimer, &QTimer::timeout, this, [this]() {
         m_typingLabel->clear();
     });
-
 }
-
 // ─────────────────────────────────────────
 //  UI Setup
 // ─────────────────────────────────────────
@@ -259,19 +262,24 @@ void ChatWindow::onSendClicked()
 void ChatWindow::onMessageReceived(const Message& msg)
 {
     if (msg.type == "chat") {
-        if (msg.sender != m_username) {
+        if (msg.sender != m_username)
             addBubble(msg);
-             // sirf doosron ka message aaye toh sound
-        }
-    }else if (msg.type == "join") {
-        // Sabka join dikhao — apna bhi
-        addSystemMessage(msg.sender + " joined the chat");
 
+    } else if (msg.type == "join") {
+        if (msg.sender == m_username)
+            addSystemMessage("You joined the chat ✓");
+        else
+            addSystemMessage(msg.sender + " joined the chat");
     } else if (msg.type == "leave") {
         addSystemMessage(msg.sender + " left the chat");
 
+    } else if (msg.type == "userlist") {
+        updateUserList(msg.content.split(",", Qt::SkipEmptyParts));
+
+    } else if (msg.type == "history") {
+        addBubble(msg);
+
     } else if (msg.type == "typing") {
-        // Apna typing indicator khud ko mat dikhao
         if (msg.sender != m_username) {
             m_typingLabel->setText(msg.sender + " is typing...");
             m_typingTimer->start(2500);
@@ -279,22 +287,84 @@ void ChatWindow::onMessageReceived(const Message& msg)
     }
 }
 
+
 void ChatWindow::onConnected()
 {
-    // Sirf join broadcast karo — locally mat dikhao
-    // Server broadcast karega sabko — tab dikhega
-    Message msg;
-    msg.type      = "join";
-    msg.sender    = m_username;
-    msg.content   = "";
-    msg.timestamp = QDateTime::currentDateTime().toString("hh:mm");
-    m_client->sendRaw(msg.toBytes());
-}
+    if (m_joinSent) return;
+    m_joinSent = true;
 
+    // Server mode mein thoda delay do
+    // taake server fully ready ho jaaye
+    int delay = m_isServer ? 100 : 0;
+
+    QTimer::singleShot(delay, this, [this]() {
+        Message msg;
+        msg.type      = "join";
+        msg.sender    = m_username;
+        msg.content   = "";
+        msg.timestamp = QDateTime::currentDateTime().toString("hh:mm");
+        m_client->sendRaw(msg.toBytes());
+    });
+}
 void ChatWindow::onDisconnected()
 {
     addSystemMessage("Disconnected from server");
 }
+
+void ChatWindow::updateUserList(const QStringList& users)
+{
+    // Purane widgets clear karo
+    QLayoutItem* item;
+    while ((item = m_usersLayout->takeAt(0)) != nullptr) {
+        if (item->widget())
+            item->widget()->deleteLater();
+        delete item;
+    }
+
+    QStringList seen;  // duplicate tracker
+
+    for (const QString& username : users) {
+        if (seen.contains(username)) continue;  // duplicate skip
+        seen.append(username);
+
+        QWidget* userRow = new QWidget();
+        QHBoxLayout* layout = new QHBoxLayout(userRow);
+        layout->setContentsMargins(18, 7, 18, 7);
+        layout->setSpacing(9);
+
+        QLabel* av = new QLabel(username.left(2).toUpper());
+        av->setFixedSize(30, 30);
+        av->setAlignment(Qt::AlignCenter);
+        av->setStyleSheet(
+            "background-color:#ede0f8;"
+            "color:#8b5cf6;"
+            "border-radius:9px;"
+            "font-weight:700;"
+            "font-size:10px;"
+            );
+
+        QLabel* name = new QLabel(username);
+        name->setStyleSheet(
+            "font-size:12px;font-weight:500;color:#3d3450;"
+            );
+
+        QLabel* dot = new QLabel();
+        dot->setFixedSize(7, 7);
+        dot->setStyleSheet(
+            "background-color:#86efac;border-radius:3px;"
+            );
+
+        layout->addWidget(av);
+        layout->addWidget(name);
+        layout->addStretch();
+        layout->addWidget(dot);
+
+        m_usersLayout->addWidget(userRow);
+    }
+
+    m_usersLayout->addStretch();
+}
+
 
 // ─────────────────────────────────────────
 //  UI Helpers

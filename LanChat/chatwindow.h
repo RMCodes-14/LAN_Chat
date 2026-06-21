@@ -8,6 +8,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QTimer>
+#include <QMessageBox>
 #include "client.h"
 
 
@@ -20,6 +21,7 @@ public:
     explicit ChatWindow(const QString& username,
                         const QString& host,
                         quint16 port,
+                        bool isServer = false,
                         QWidget* parent = nullptr);
 
 private slots:
@@ -28,15 +30,24 @@ private slots:
     void onConnected();
     void onDisconnected();
 
+
 private:
+
     void setupUI();
     void applyStyles();
     void addBubble(const Message& msg);
     void addSystemMessage(const QString& text);
     void scrollToBottom();
+    void updateUserList(const QStringList& users);
 
 
+
+
+
+    bool m_isServer;
+    bool m_joinSent = false;
     // Backend
+
     ChatClient* m_client;
     QString     m_username;
 
@@ -53,5 +64,6 @@ private:
     QPushButton* m_sendBtn;
     QPushButton* m_leaveBtn;  // private mein add karo
     QTimer*      m_typingTimer;
+
 
 };

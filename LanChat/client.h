@@ -15,10 +15,12 @@ public:
     void disconnectFromServer();
     void sendRaw(const QByteArray& data);
 
+
 signals:
     void messageReceived(const Message& msg);
     void connectedToServer();
     void disconnectedFromServer();
+    void connectionError(const QString& error);  // ADD
 
 private slots:
     void onReadyRead();
