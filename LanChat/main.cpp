@@ -2,6 +2,7 @@
 #include "connectionwindow.h"
 #include "chatwindow.h"
 #include "server.h"
+#include "serverwindow.h"
 
 int main(int argc, char *argv[])
 {
@@ -18,14 +19,20 @@ int main(int argc, char *argv[])
                          chat->show();
                      });
 
-    // Server mode
+
+    // ── SERVER MODE ──
     QObject::connect(connWindow, &ConnectionWindow::startAsServer,
                      [&](const QString& username, quint16 port) {
-                         ChatServer* server = new ChatServer();
-                         server->startServer(port);
+                         Q_UNUSED(username);
+
+
+                         ServerWindow* serverUI = new ServerWindow(port);
+                         serverUI->show();
+
+
                          connWindow->hide();
-                         ChatWindow* chat = new ChatWindow(username, "127.0.0.1", port, true);
-                         chat->show();
+
+
                      });
 
     return a.exec();

@@ -101,7 +101,7 @@ void ConnectionWindow::setupUI()
     serverLayout->addWidget(serverTitle);
     serverLayout->addSpacing(16);
     // serverLayout mein add karo port se pehle
-    serverLayout->addWidget(m_serverUsernameInput);
+
     serverLayout->addWidget(m_portInput);
     serverLayout->addWidget(m_startServerBtn);
     serverLayout->addWidget(backBtn1);
@@ -161,17 +161,22 @@ void ConnectionWindow::setupUI()
     m_stack->addWidget(m_modePage);
     m_stack->addWidget(m_serverPage);
     m_stack->addWidget(m_clientPage);
-
     // ── CONNECTIONS ──
     connect(m_serverBtn,      &QPushButton::clicked, this, &ConnectionWindow::onServerClicked);
     connect(m_clientBtn,      &QPushButton::clicked, this, &ConnectionWindow::onClientClicked);
+
     connect(m_startServerBtn, &QPushButton::clicked, this, [this]() {
         QString username = m_serverUsernameInput->text().trimmed();
         quint16 port = m_portInput->text().toUShort();
         if (port == 0) port = 5050;
-        if (username.isEmpty()) return;
+
+
+        if (username.isEmpty()) username = "Admin";
+
         emit startAsServer(username, port);
     });
+
+    // Client connection
     connect(m_connectBtn, &QPushButton::clicked, this, [this]() {
         QString host = m_hostInput->text().trimmed();
         QString user = m_userInput->text().trimmed();
@@ -180,6 +185,8 @@ void ConnectionWindow::setupUI()
         if (host.isEmpty() || user.isEmpty()) return;
         emit startAsClient(host, port, user);
     });
+
+    // Back buttons
     connect(backBtn1, &QPushButton::clicked, this, [this]() {
         m_stack->setCurrentIndex(0);
     });

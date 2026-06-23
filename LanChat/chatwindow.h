@@ -10,6 +10,8 @@
 #include <QTimer>
 #include <QMessageBox>
 #include "client.h"
+#include <QSoundEffect>
+
 
 
 
@@ -42,7 +44,8 @@ private:
 
 
 
-
+    // private mein:
+    QSoundEffect* m_notifSound;
 
     bool m_isServer;
     bool m_joinSent = false;

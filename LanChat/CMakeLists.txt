@@ -7,16 +7,9 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network )
-
-
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network Multimedia)
 
 set(PROJECT_SOURCES
-        main.cpp
-)
-
-qt_add_executable(LanChat
-    MANUAL_FINALIZATION
     main.cpp
     protocol.h
     server.h
@@ -27,7 +20,15 @@ qt_add_executable(LanChat
     connectionwindow.cpp
     chatwindow.h
     chatwindow.cpp
+    resources.qrc
+    serverwindow.h
+    serverwindow.cpp
+)
 
+qt_add_executable(LanChat
+    MANUAL_FINALIZATION
+    ${PROJECT_SOURCES}
+    serverwindow.h serverwindow.cpp
 )
 
 target_link_libraries(LanChat PRIVATE
@@ -35,6 +36,7 @@ target_link_libraries(LanChat PRIVATE
     Qt6::Gui
     Qt6::Widgets
     Qt6::Network
+    Qt6::Multimedia
 )
 
 set_target_properties(LanChat PROPERTIES

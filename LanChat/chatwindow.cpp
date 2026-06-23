@@ -31,6 +31,9 @@ ChatWindow::ChatWindow(const QString& username,
             });
 
     m_client->connectToServer(host, port);
+    m_notifSound = new QSoundEffect(this);
+    m_notifSound->setSource(QUrl("qrc:/sounds/notif.wav"));
+    m_notifSound->setVolume(0.6f);
 
     m_typingTimer = new QTimer(this);
     m_typingTimer->setSingleShot(true);
@@ -257,29 +260,44 @@ void ChatWindow::onSendClicked()
     // Server ko bhejo — doosron ko jaega
     m_client->sendMessage(text, m_username);
     m_inputField->clear();
+    if (msg.type == "chat") {
+        if (msg.sender != m_username) {
+            addBubble(msg);
+            m_notifSound->play();
+        }
+    }
 }
 
 void ChatWindow::onMessageReceived(const Message& msg)
 {
+    // 1. Handle primary chat messages from peers
     if (msg.type == "chat") {
-        if (msg.sender != m_username)
+        if (msg.sender != m_username) {
             addBubble(msg);
-
-    } else if (msg.type == "join") {
+            m_notifSound->play(); // Rings ONLY for valid incoming chat packets
+        }
+    }
+    // 2. Handle historical sync messages from server
+    else if (msg.type == "history" || msg.type == "chat") {
+        addBubble(msg);
+        // Note: No notification sound for historical synchronization
+    }
+    // 3. System announcements
+    else if (msg.type == "join") {
         if (msg.sender == m_username)
             addSystemMessage("You joined the chat ✓");
         else
             addSystemMessage(msg.sender + " joined the chat");
-    } else if (msg.type == "leave") {
+    }
+    else if (msg.type == "leave") {
         addSystemMessage(msg.sender + " left the chat");
-
-    } else if (msg.type == "userlist") {
+    }
+    // 4. Live active participant registry
+    else if (msg.type == "userlist") {
         updateUserList(msg.content.split(",", Qt::SkipEmptyParts));
-
-    } else if (msg.type == "history") {
-        addBubble(msg);
-
-    } else if (msg.type == "typing") {
+    }
+    // 5. Typing Indicator (No bubbles, no sounds!)
+    else if (msg.type == "typing") {
         if (msg.sender != m_username) {
             m_typingLabel->setText(msg.sender + " is typing...");
             m_typingTimer->start(2500);
