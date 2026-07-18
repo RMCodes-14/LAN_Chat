@@ -1,4 +1,3 @@
-# LAN_Chat
 
 # LAN_Chat
 
