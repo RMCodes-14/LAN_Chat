@@ -1,10 +1,19 @@
 #include "chatwindow.h"
 #include <QScrollBar>
 #include <QDateTime>
+#include <QListWidget>
+#include <QListWidgetItem>
+#include <QMenu>
+#include <QAction>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QFile>
+#include <QMessageBox>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QDir>
 
-// ─────────────────────────────────────────
-//  Constructor
-// ─────────────────────────────────────────
+// Constructor
 ChatWindow::ChatWindow(const QString& username,
                        const QString& host,
                        quint16 port,
@@ -16,6 +25,9 @@ ChatWindow::ChatWindow(const QString& username,
     applyStyles();
 
     m_client = new ChatClient(this);
+    m_messagesWidget->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_messagesWidget, &QWidget::customContextMenuRequested,
+            this, &ChatWindow::showContextMenu);
 
     connect(m_client, &ChatClient::messageReceived,
             this,     &ChatWindow::onMessageReceived);
@@ -41,9 +53,8 @@ ChatWindow::ChatWindow(const QString& username,
         m_typingLabel->clear();
     });
 }
-// ─────────────────────────────────────────
-//  UI Setup
-// ─────────────────────────────────────────
+
+// UI Setup
 void ChatWindow::setupUI()
 {
     setWindowTitle("LanChat");
@@ -79,13 +90,11 @@ void ChatWindow::setupUI()
     logoLayout->addWidget(serverTag);
     sideLayout->addWidget(logoArea);
 
-    // Section label
     QLabel* onlineSec = new QLabel("ONLINE");
     onlineSec->setObjectName("sectionLabel");
     onlineSec->setContentsMargins(18, 14, 18, 5);
     sideLayout->addWidget(onlineSec);
 
-    // Users list
     QWidget* usersContainer = new QWidget();
     m_usersLayout = new QVBoxLayout(usersContainer);
     m_usersLayout->setContentsMargins(0, 0, 0, 0);
@@ -94,7 +103,6 @@ void ChatWindow::setupUI()
     sideLayout->addWidget(usersContainer);
     sideLayout->addStretch();
 
-    // My profile
     QWidget* myProfile = new QWidget();
     myProfile->setObjectName("myProfile");
     QHBoxLayout* profileLayout = new QHBoxLayout(myProfile);
@@ -127,7 +135,6 @@ void ChatWindow::setupUI()
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
 
-    // Header
     QWidget* header = new QWidget();
     header->setObjectName("chatHeader");
     QHBoxLayout* headerLayout = new QHBoxLayout(header);
@@ -150,7 +157,6 @@ void ChatWindow::setupUI()
     QLabel* lanBadge = new QLabel("LAN · 192.168.1.x");
     lanBadge->setObjectName("lanBadge");
 
-    // ── LEAVE BUTTON ──
     m_leaveBtn = new QPushButton("Leave");
     m_leaveBtn->setObjectName("leaveBtn");
 
@@ -161,7 +167,6 @@ void ChatWindow::setupUI()
     headerLayout->addWidget(m_leaveBtn);
     mainLayout->addWidget(header);
 
-    // Scroll area
     m_scrollArea = new QScrollArea();
     m_scrollArea->setObjectName("scrollArea");
     m_scrollArea->setWidgetResizable(true);
@@ -178,18 +183,21 @@ void ChatWindow::setupUI()
     m_scrollArea->setWidget(m_messagesWidget);
     mainLayout->addWidget(m_scrollArea);
 
-    // Typing label
     m_typingLabel = new QLabel();
     m_typingLabel->setObjectName("typingLabel");
     m_typingLabel->setContentsMargins(22, 4, 22, 4);
     mainLayout->addWidget(m_typingLabel);
 
-    // Input bar
+    // 🎨 Premium Message Input Bar Layout (Bina Kisi Change Ke Same)
     QWidget* inputBar = new QWidget();
     inputBar->setObjectName("inputBar");
     QHBoxLayout* inputLayout = new QHBoxLayout(inputBar);
     inputLayout->setContentsMargins(16, 12, 16, 12);
     inputLayout->setSpacing(10);
+
+    QPushButton* m_attachBtn = new QPushButton("📎");
+    m_attachBtn->setFixedSize(44, 44);
+    m_attachBtn->setObjectName("attachBtn");
 
     m_inputField = new QLineEdit();
     m_inputField->setObjectName("inputField");
@@ -200,19 +208,18 @@ void ChatWindow::setupUI()
     m_sendBtn->setObjectName("sendBtn");
     m_sendBtn->setFixedSize(44, 44);
 
+    inputLayout->addWidget(m_attachBtn);
     inputLayout->addWidget(m_inputField);
     inputLayout->addWidget(m_sendBtn);
-    mainLayout->addWidget(inputBar);
 
+    mainLayout->addWidget(inputBar);
     root->addWidget(mainArea);
 
-    // ── CONNECT SIGNALS ───────────────────
-    connect(m_sendBtn,    &QPushButton::clicked,
-            this,         &ChatWindow::onSendClicked);
-    connect(m_inputField, &QLineEdit::returnPressed,
-            this,         &ChatWindow::onSendClicked);
+    // Signals Connections
+    connect(m_sendBtn,    &QPushButton::clicked, this, &ChatWindow::onSendClicked);
+    connect(m_inputField, &QLineEdit::returnPressed, this, &ChatWindow::onSendClicked);
+    connect(m_attachBtn,  &QPushButton::clicked, this, &ChatWindow::onAttachFileClicked);
 
-    // Typing broadcast
     connect(m_inputField, &QLineEdit::textChanged, this, [this]() {
         Message msg;
         msg.type      = "typing";
@@ -223,9 +230,7 @@ void ChatWindow::setupUI()
         m_typingTimer->start(2500);
     });
 
-    // Leave button
     connect(m_leaveBtn, &QPushButton::clicked, this, [this]() {
-        // Pehle leave message broadcast karo
         Message msg;
         msg.type      = "leave";
         msg.sender    = m_username;
@@ -233,7 +238,6 @@ void ChatWindow::setupUI()
         msg.timestamp = QDateTime::currentDateTime().toString("hh:mm");
         m_client->sendRaw(msg.toBytes());
 
-        // 100ms baad disconnect karo taake message jaaye pehle
         QTimer::singleShot(100, this, [this]() {
             m_client->disconnectFromServer();
             close();
@@ -241,48 +245,71 @@ void ChatWindow::setupUI()
     });
 }
 
-// ─────────────────────────────────────────
-//  Slots
-// ─────────────────────────────────────────
 void ChatWindow::onSendClicked()
 {
     QString text = m_inputField->text().trimmed();
     if (text.isEmpty()) return;
 
-    // Apna message locally add karo — right side
     Message msg;
-    msg.type      = "chat";
-    msg.sender    = m_username;
-    msg.content   = text;
+    msg.id = m_username + "_" + QString::number(QDateTime::currentMSecsSinceEpoch());
+    msg.type = "chat";
+    msg.sender = m_username;
+    msg.content = text;
     msg.timestamp = QDateTime::currentDateTime().toString("hh:mm");
-    addBubble(msg);
 
-    // Server ko bhejo — doosron ko jaega
-    m_client->sendMessage(text, m_username);
+    m_client->sendRaw(msg.toBytes());
+    addBubble(msg);
     m_inputField->clear();
-    if (msg.type == "chat") {
-        if (msg.sender != m_username) {
-            addBubble(msg);
-            m_notifSound->play();
-        }
+}
+
+void ChatWindow::onAttachFileClicked()
+{
+    QString filePath = QFileDialog::getOpenFileName(this, "Select File", "", "All Files (*.*)");
+    if (filePath.isEmpty()) return;
+
+    QFileInfo fileInfo(filePath);
+    qint64 fileSize = fileInfo.size();
+    QString ext = fileInfo.suffix().toLower();
+
+    if (ext == "mp4" || ext == "mkv" || ext == "avi" || ext == "mov") {
+        QMessageBox::critical(this, "Error", "Videos are not allowed as they are too heavy!");
+        return;
+    }
+
+    qint64 maxLimit = 5 * 1024 * 1024; // 5 MB
+    if (fileSize > maxLimit) {
+        QMessageBox::critical(this, "Error", "File is too heavy! Maximum allowed size is 5MB.");
+        return;
+    }
+
+    QFile file(filePath);
+    if (file.open(QIODevice::ReadOnly)) {
+        QByteArray fileData = file.readAll();
+
+        Message msg;
+        msg.id = m_username + "_" + QString::number(QDateTime::currentMSecsSinceEpoch());
+        msg.type = "file";
+        msg.sender = m_username;
+        // Filename aur Base64 ko content stream mein pack kiya
+        msg.content = fileInfo.fileName() + "|" + QString(fileData.toBase64());
+        msg.timestamp = QDateTime::currentDateTime().toString("hh:mm");
+
+        m_client->sendRaw(msg.toBytes());
+        addBubble(msg);
     }
 }
 
 void ChatWindow::onMessageReceived(const Message& msg)
 {
-    // 1. Handle primary chat messages from peers
-    if (msg.type == "chat") {
+    if (msg.type == "chat" || msg.type == "file") {
         if (msg.sender != m_username) {
             addBubble(msg);
-            m_notifSound->play(); // Rings ONLY for valid incoming chat packets
+            m_notifSound->play();
         }
     }
-    // 2. Handle historical sync messages from server
-    else if (msg.type == "history" || msg.type == "chat") {
+    else if (msg.type == "history") {
         addBubble(msg);
-        // Note: No notification sound for historical synchronization
     }
-    // 3. System announcements
     else if (msg.type == "join") {
         if (msg.sender == m_username)
             addSystemMessage("You joined the chat ✓");
@@ -292,29 +319,70 @@ void ChatWindow::onMessageReceived(const Message& msg)
     else if (msg.type == "leave") {
         addSystemMessage(msg.sender + " left the chat");
     }
-    // 4. Live active participant registry
+    else if (msg.type == "kick") {
+        addSystemMessage("❌ " + msg.content + " was kicked out by Admin!");
+        if (msg.content == m_username) {
+            m_client->disconnectFromServer();
+            QTimer::singleShot(500, this, [this]() {
+                QMessageBox::warning(this, "Kicked", "You have been kicked from the chat room.");
+                close();
+            });
+        }
+    }
     else if (msg.type == "userlist") {
         updateUserList(msg.content.split(",", Qt::SkipEmptyParts));
     }
-    // 5. Typing Indicator (No bubbles, no sounds!)
     else if (msg.type == "typing") {
         if (msg.sender != m_username) {
             m_typingLabel->setText(msg.sender + " is typing...");
             m_typingTimer->start(2500);
         }
     }
-}
+    else if (msg.type == "delete") {
+        // 🔥 UPDATE: Jab network se delete message aaye to sahi target row ko update karein
+        QString targetId = msg.content;
+        QWidget* targetRow = m_messagesWidget->findChild<QWidget*>(targetId);
+        if (targetRow) {
+            QList<QLabel*> labels = targetRow->findChildren<QLabel*>();
+            bool textLabelFound = false;
+            for (QLabel* label : labels) {
+                if (label->property("isMessageText").toBool() || label->objectName() == "msgTextLabel") {
+                    if (msg.sender == m_username) {
+                        label->setText("<i>🚫 You deleted this message</i>");
+                    } else {
+                        label->setText("<i>🚫 This message was deleted from " + msg.sender + "'s side</i>");
+                    }
+                    label->setStyleSheet("color: #a89bb8; font-style: italic;");
+                    textLabelFound = true;
+                    break;
+                }
+            }
 
+            if (!textLabelFound) {
+                QWidget* bubbleWidget = targetRow->findChild<QWidget*>();
+                if (bubbleWidget) {
+                    QLayout* bLayout = bubbleWidget->layout();
+                    if (bLayout) {
+                        QLayoutItem* item;
+                        while ((item = bLayout->takeAt(0)) != nullptr) {
+                            if (item->widget()) item->widget()->deleteLater();
+                            delete item;
+                        }
+                        QLabel* delNotice = new QLabel(msg.sender == m_username ? "<i>🚫 You deleted this file</i>" : "<i>🚫 This file was deleted</i>");
+                        delNotice->setStyleSheet("color: #a89bb8; font-style: italic; font-size: 12px;");
+                        bLayout->addWidget(delNotice);
+                    }
+                }
+            }
+        }
+    }
+}
 
 void ChatWindow::onConnected()
 {
     if (m_joinSent) return;
     m_joinSent = true;
-
-    // Server mode mein thoda delay do
-    // taake server fully ready ho jaaye
     int delay = m_isServer ? 100 : 0;
-
     QTimer::singleShot(delay, this, [this]() {
         Message msg;
         msg.type      = "join";
@@ -324,6 +392,7 @@ void ChatWindow::onConnected()
         m_client->sendRaw(msg.toBytes());
     });
 }
+
 void ChatWindow::onDisconnected()
 {
     addSystemMessage("Disconnected from server");
@@ -331,7 +400,6 @@ void ChatWindow::onDisconnected()
 
 void ChatWindow::updateUserList(const QStringList& users)
 {
-    // Purane widgets clear karo
     QLayoutItem* item;
     while ((item = m_usersLayout->takeAt(0)) != nullptr) {
         if (item->widget())
@@ -339,10 +407,9 @@ void ChatWindow::updateUserList(const QStringList& users)
         delete item;
     }
 
-    QStringList seen;  // duplicate tracker
-
+    QStringList seen;
     for (const QString& username : users) {
-        if (seen.contains(username)) continue;  // duplicate skip
+        if (seen.contains(username)) continue;
         seen.append(username);
 
         QWidget* userRow = new QWidget();
@@ -353,24 +420,14 @@ void ChatWindow::updateUserList(const QStringList& users)
         QLabel* av = new QLabel(username.left(2).toUpper());
         av->setFixedSize(30, 30);
         av->setAlignment(Qt::AlignCenter);
-        av->setStyleSheet(
-            "background-color:#ede0f8;"
-            "color:#8b5cf6;"
-            "border-radius:9px;"
-            "font-weight:700;"
-            "font-size:10px;"
-            );
+        av->setStyleSheet("background-color:#ede0f8; color:#8b5cf6; border-radius:9px; font-weight:700; font-size:10px;");
 
         QLabel* name = new QLabel(username);
-        name->setStyleSheet(
-            "font-size:12px;font-weight:500;color:#3d3450;"
-            );
+        name->setStyleSheet("font-size:12px;font-weight:500;color:#3d3450;");
 
         QLabel* dot = new QLabel();
         dot->setFixedSize(7, 7);
-        dot->setStyleSheet(
-            "background-color:#86efac;border-radius:3px;"
-            );
+        dot->setStyleSheet("background-color:#86efac;border-radius:3px;");
 
         layout->addWidget(av);
         layout->addWidget(name);
@@ -379,19 +436,52 @@ void ChatWindow::updateUserList(const QStringList& users)
 
         m_usersLayout->addWidget(userRow);
     }
-
     m_usersLayout->addStretch();
 }
 
+void ChatWindow::showContextMenu(const QPoint& pos)
+{
+    QWidget* child = m_messagesWidget->childAt(pos);
+    if (!child) return;
 
-// ─────────────────────────────────────────
-//  UI Helpers
-// ─────────────────────────────────────────
+    QWidget* targetRow = child;
+    while (targetRow && targetRow->parentWidget() != m_messagesWidget) {
+        targetRow = targetRow->parentWidget();
+    }
+    if (!targetRow || targetRow->objectName().isEmpty()) return;
+
+    QString messageId = targetRow->objectName();
+    if (!messageId.startsWith(m_username + "_")) return; // Sirf apne message delete karne ki permission
+
+    QMenu contextMenu(this);
+    QAction* deleteAction = contextMenu.addAction("Delete Message");
+    QAction* selectedAction = contextMenu.exec(m_messagesWidget->mapToGlobal(pos));
+
+    if (selectedAction == deleteAction) {
+        onDeleteRequested(messageId);
+    }
+}
+
+// 🔥 UPDATE: Pure network standard par delete packet bejhna taake dono users sync ho sakein
+void ChatWindow::onDeleteRequested(const QString& messageId)
+{
+    Message deletePacket;
+    deletePacket.id = messageId;
+    deletePacket.type = "delete";
+    deletePacket.sender = m_username;
+    deletePacket.content = messageId; // content field holds the unique row ID
+    deletePacket.timestamp = QDateTime::currentDateTime().toString("hh:mm");
+    m_client->sendRaw(deletePacket.toBytes());
+}
+
+// UI Bubble Generation Logic
 void ChatWindow::addBubble(const Message& msg)
 {
     bool isMe = (msg.sender == m_username);
 
     QWidget* row = new QWidget();
+    row->setObjectName(msg.id); // Set standard ID for deletion target lookup
+
     QHBoxLayout* rowLayout = new QHBoxLayout(row);
     rowLayout->setContentsMargins(0, 2, 0, 2);
     rowLayout->setSpacing(8);
@@ -412,16 +502,71 @@ void ChatWindow::addBubble(const Message& msg)
         colLayout->addWidget(sender);
     }
 
-    QLabel* bubble = new QLabel(msg.content);
-    bubble->setWordWrap(true);
-    /*bubble->setMinimumWidth(200); */  // minimum half screen
-    bubble->setMaximumWidth(420);
-    bubble->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    QWidget* bubble = new QWidget();
     bubble->setObjectName(isMe ? "bubbleMe" : "bubbleThem");
+    QVBoxLayout* bubbleLayout = new QVBoxLayout(bubble);
+    bubbleLayout->setContentsMargins(10, 10, 10, 10);
+
+    if (msg.type == "file") {
+        QStringList parts = msg.content.split("|");
+        QString fileName = parts.first();
+        QString base64Data = parts.size() > 1 ? parts.at(1) : "";
+
+        QHBoxLayout* fileLayout = new QHBoxLayout();
+        fileLayout->setSpacing(8);
+
+        QLabel* fileIcon = new QLabel("📁");
+        fileIcon->setStyleSheet("font-size: 16px;");
+
+        QLabel* fileNameLabel = new QLabel(fileName);
+        fileNameLabel->setStyleSheet("font-weight: bold; color: " + QString(isMe ? "white" : "#3d3450") + "; font-size: 13px;");
+        fileNameLabel->setWordWrap(true);
+
+        QPushButton* downloadBtn = new QPushButton("Open");
+        downloadBtn->setCursor(Qt::PointingHandCursor);
+        downloadBtn->setFixedWidth(55);
+        downloadBtn->setStyleSheet(
+            "background-color: rgba(255, 255, 255, 0.25);"
+            "border: 1px solid rgba(255, 255, 255, 0.4);"
+            "color: " + QString(isMe ? "white" : "#8b5cf6") + ";"
+                                                    "border-radius: 6px; padding: 3px; font-size: 11px; font-weight: bold;"
+            );
+
+        // 🔥 Safe Download & Instant Open System Integration
+        connect(downloadBtn, &QPushButton::clicked, this, [fileName, base64Data, this]() {
+            if (base64Data.isEmpty()) return;
+
+            // Safe standard Windows directory path jo humesha file permission pass karti hai
+            QString savePath = QDir::tempPath() + "/" + fileName;
+            QFile file(savePath);
+            if (file.open(QIODevice::WriteOnly)) {
+                file.write(QByteArray::fromBase64(base64Data.toUtf8()));
+                file.close();
+
+                // Open file with native application launcher automatically
+                QDesktopServices::openUrl(QUrl::fromLocalFile(savePath));
+            } else {
+                QMessageBox::warning(this, "Error", "Failed to decode and save file attachment.");
+            }
+        });
+
+        fileLayout->addWidget(fileIcon);
+        fileLayout->addWidget(fileNameLabel, 1);
+        fileLayout->addWidget(downloadBtn);
+        bubbleLayout->addLayout(fileLayout);
+    } else {
+        QLabel* textLabel = new QLabel(msg.content);
+        textLabel->setWordWrap(true);
+        textLabel->setObjectName("msgTextLabel");
+        textLabel->setProperty("isMessageText", true);
+        textLabel->setStyleSheet("color: inherit; font-size: 13px;");
+        bubbleLayout->addWidget(textLabel);
+    }
+
+    bubble->setMaximumWidth(420);
 
     QLabel* time = new QLabel(msg.timestamp);
     time->setObjectName("msgTime");
-
     colLayout->addWidget(bubble);
     colLayout->addWidget(time);
 
@@ -435,9 +580,7 @@ void ChatWindow::addBubble(const Message& msg)
         rowLayout->addWidget(bubbleCol);
         rowLayout->addStretch();
     }
-
     m_messagesLayout->addWidget(row);
-
     scrollToBottom();
 }
 
@@ -459,195 +602,44 @@ void ChatWindow::scrollToBottom()
     });
 }
 
-// ─────────────────────────────────────────
-//  Styles
-// ─────────────────────────────────────────
+// Design Styles (Bina Kisi Change Ke Same)
 void ChatWindow::applyStyles()
 {
     setStyleSheet(R"(
-        QWidget#sidebar {
-            background-color: #ede6f0;
-            border-right: 1px solid #e0d5ec;
-        }
-        QWidget#logoArea {
-            border-bottom: 1px solid #e0d5ec;
-            background-color: #ede6f0;
-        }
-        QLabel#logo {
-            font-size: 20px;
-            font-weight: 700;
-            color: #3d3450;
-        }
-        QLabel#serverTag {
-            font-size: 10px;
-            color: #86efac;
-        }
-        QLabel#sectionLabel {
-            font-size: 9px;
-            font-weight: 600;
-            color: #c4b8d4;
-            letter-spacing: 1px;
-        }
-        QWidget#myProfile {
-            background-color: #e4daea;
-            border-top: 1px solid #e0d5ec;
-        }
-        QLabel#myAvatar {
-            background-color: #ede0f8;
-            color: #8b5cf6;
-            border-radius: 10px;
-            font-weight: 700;
-            font-size: 11px;
-        }
-        QLabel#myName {
-            font-size: 12px;
-            font-weight: 600;
-            color: #3d3450;
-        }
-        QLabel#myStatus {
-            font-size: 10px;
-            color: #a89bb8;
-        }
-        QWidget#mainArea {
-            background-color: #f5f0eb;
-        }
-        QWidget#chatHeader {
-            background-color: #ffffff;
-            border-bottom: 1px solid #ede6f0;
-        }
-        QLabel#chatAvatar {
-            background-color: #ede0f8;
-            color: #6d28d9;
-            border-radius: 11px;
-            font-weight: 700;
-            font-size: 12px;
-        }
-        QLabel#chatTitle {
-            font-size: 14px;
-            font-weight: 600;
-            color: #3d3450;
-        }
-        QLabel#chatSub {
-            font-size: 10px;
-            color: #a89bb8;
-        }
-        QLabel#lanBadge {
-            background-color: #f5f0fb;
-            border: 1px solid #e8dff0;
-            border-radius: 20px;
-            padding: 3px 12px;
-            font-size: 10px;
-            color: #a89bb8;
-        }
-        QPushButton#leaveBtn {
-            background-color: transparent;
-            border: 1px solid #e8dff0;
-            border-radius: 8px;
-            color: #a89bb8;
-            font-size: 11px;
-            padding: 4px 12px;
-        }
-        QPushButton#leaveBtn:hover {
-            border-color: #f87171;
-            color: #f87171;
-        }
-        QScrollArea#scrollArea {
-            background-color: #f9f6f2;
-            border: none;
-        }
-        QWidget#messagesWidget {
-            background-color: #f9f6f2;
-        }
-        QScrollBar:vertical {
-            width: 4px;
-            background: transparent;
-        }
-        QScrollBar::handle:vertical {
-            background: #e8dff0;
-            border-radius: 2px;
-        }
-        QScrollBar::add-line:vertical,
-        QScrollBar::sub-line:vertical {
-            height: 0px;
-        }
-        QLabel#bubbleMe {
-            background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
-                stop:0 #8b5cf6, stop:1 #a78bfa);
-            color: white;
-            border-radius: 14px;
-            padding: 9px 13px;
-            font-size: 13px;
-        }
-        QLabel#bubbleThem {
-            background-color: #ffffff;
-            color: #3d3450;
-            border: 1px solid #ede6f0;
-            border-radius: 14px;
-            padding: 9px 13px;
-            font-size: 13px;
-        }
-        QLabel#senderName {
-            font-size: 9px;
-            color: #c4b8d4;
-            padding-left: 3px;
-        }
-        QLabel#msgTime {
-            font-size: 9px;
-            color: #d4cae0;
-            padding-left: 3px;
-        }
-        QLabel#systemMsg {
-            font-size: 10px;
-            color: #c4b8d4;
-            padding: 4px 0;
-        }
-        QLabel#typingLabel {
-            font-size: 14px;
-            color: #c4b8d4;
-            font-style: italic;
-            background-color: #f9f6f2;
-
-        }
-        QWidget#inputBar {
-            background-color: #ffffff;
-            border-top: 1px solid #ede6f0;
-        }
-        QLineEdit#inputField {
-            background-color: #f5f0fb;
-            border: 1px solid #e8dff0;
-            border-radius: 12px;
-            padding: 0 14px;
-            font-size: 13px;
-            color: #3d3450;
-        }
-        QLineEdit#inputField:focus {
-            border: 1px solid #8b5cf6;
-        }
-        QPushButton#sendBtn {
-            background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
-                stop:0 #8b5cf6, stop:1 #a78bfa);
-            border: none;
-            border-radius: 12px;
-            color: white;
-            font-size: 16px;
-        }
-        QPushButton#sendBtn:hover {
-            background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
-                stop:0 #7c3aed, stop:1 #8b5cf6);
-        }
-        QLabel#avatarMe {
-            background-color: #ede0f8;
-            color: #8b5cf6;
-            border-radius: 8px;
-            font-weight: 700;
-            font-size: 9px;
-        }
-        QLabel#avatarThem {
-            background-color: #dde8f8;
-            color: #4f7ccf;
-            border-radius: 8px;
-            font-weight: 700;
-            font-size: 9px;
-        }
+        QWidget#sidebar { background-color: #ede6f0; border-right: 1px solid #e0d5ec; }
+        QWidget#logoArea { border-bottom: 1px solid #e0d5ec; background-color: #ede6f0; }
+        QLabel#logo { font-size: 20px; font-weight: 700; color: #3d3450; }
+        QLabel#serverTag { font-size: 10px; color: #86efac; }
+        QLabel#sectionLabel { font-size: 9px; font-weight: 600; color: #c4b8d4; letter-spacing: 1px; }
+        QWidget#myProfile { background-color: #e4daea; border-top: 1px solid #e0d5ec; }
+        QLabel#myAvatar { background-color: #ede0f8; color: #8b5cf6; border-radius: 10px; font-weight: 700; font-size: 11px; }
+        QLabel#myName { font-size: 12px; font-weight: 600; color: #3d3450; }
+        QLabel#myStatus { font-size: 10px; color: #a89bb8; }
+        QWidget#mainArea { background-color: #f5f0eb; }
+        QWidget#chatHeader { background-color: #ffffff; border-bottom: 1px solid #ede6f0; }
+        QLabel#chatAvatar { background-color: #ede0f8; color: #6d28d9; border-radius: 11px; font-weight: 700; font-size: 12px; }
+        QLabel#chatTitle { font-size: 14px; font-weight: 600; color: #3d3450; }
+        QLabel#chatSub { font-size: 10px; color: #a89bb8; }
+        QLabel#lanBadge { background-color: #f5f0fb; border: 1px solid #e8dff0; border-radius: 20px; padding: 3px 12px; font-size: 10px; color: #a89bb8; }
+        QPushButton#leaveBtn { background-color: transparent; border: 1px solid #e8dff0; border-radius: 8px; color: #a89bb8; font-size: 11px; padding: 4px 12px; }
+        QPushButton#leaveBtn:hover { border-color: #f87171; color: #f87171; }
+        QScrollArea#scrollArea { background-color: #f9f6f2; border: none; }
+        QWidget#messagesWidget { background-color: #f9f6f2; }
+        QScrollBar:vertical { width: 4px; background: transparent; }
+        QScrollBar::handle:vertical { background: #e8dff0; border-radius: 2px; }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
+        QWidget#bubbleMe { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #8b5cf6, stop:1 #a78bfa); color: white; border-radius: 14px; }
+        QWidget#bubbleThem { background-color: #ffffff; color: #3d3450; border: 1px solid #ede6f0; border-radius: 14px; }
+        QLabel#senderName { font-size: 9px; color: #c4b8d4; padding-left: 3px; }
+        QLabel#msgTime { font-size: 9px; color: #d4cae0; padding-left: 3px; }
+        QLabel#systemMsg { font-size: 10px; color: #c4b8d4; padding: 4px 0; }
+        QLabel#typingLabel { font-size: 14px; color: #c4b8d4; font-style: italic; background-color: #f9f6f2; }
+        QWidget#inputBar { background-color: #ffffff; border-top: 1px solid #ede6f0; }
+        QLineEdit#inputField { background-color: #f5f0fb; border: 1px solid #e8dff0; border-radius: 12px; padding: 0 14px; font-size: 13px; color: #3d3450; }
+        QLineEdit#inputField:focus { border: 1px solid #8b5cf6; }
+        QPushButton#sendBtn { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #8b5cf6, stop:1 #a78bfa); border: none; border-radius: 12px; color: white; font-size: 16px; }
+        QPushButton#sendBtn:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #7c3aed, stop:1 #8b5cf6); }
+        QLabel#avatarMe { background-color: #ede0f8; color: #8b5cf6; border-radius: 8px; font-weight: 700; font-size: 9px; }
+        QLabel#avatarThem { background-color: #dde8f8; color: #4f7ccf; border-radius: 8px; font-weight: 700; font-size: 9px; }
     )");
 }

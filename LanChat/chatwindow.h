@@ -28,9 +28,12 @@ public:
 
 private slots:
     void onSendClicked();
+    void onAttachFileClicked();
     void onMessageReceived(const Message& msg);
     void onConnected();
     void onDisconnected();
+    void showContextMenu(const QPoint& pos);
+    void onDeleteRequested(const QString& messageId);
 
 
 private:

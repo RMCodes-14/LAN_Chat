@@ -1,14 +1,20 @@
 #include "server.h"
 #include <QDateTime>
+#include <QMessageBox>
+#include <QTimer>
 
 ChatServer::ChatServer(QObject* parent) : QTcpServer(parent) {}
 
 void ChatServer::startServer(quint16 port)
 {
+    // Double Server Control Validation Block
     if (listen(QHostAddress::Any, port)) {
         emit logMessage("Server started on port " + QString::number(port));
     } else {
         emit logMessage("Server failed to start!");
+        QMessageBox::critical(nullptr, "Server Error",
+                              "Server failed to start! Port " + QString::number(port) + " is already in use by another instance.");
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -40,14 +46,11 @@ void ChatServer::OnReadyRead()
             m_usernames[sender] = msg.sender;
             emit logMessage(msg.sender + " has joined the chat.");
 
-            // 1. Pehle naye user ko pichli saari history bhejein
             sendHistory(sender);
 
-            // BUG FIX: Added "join alert" in historyfor new user to get this msg as well
             if (m_history.size() >= 20) m_history.removeFirst();
             m_history.append(msg);
 
-            // 2. Baqi sab ko inform karein
             broadcastMessage(line + "\n", nullptr);
             broadcastUserList();
             emit userListChanged(m_usernames.values());
@@ -55,7 +58,6 @@ void ChatServer::OnReadyRead()
         else if (msg.type == "leave") {
             emit logMessage(msg.sender + " voluntarily left the chat.");
 
-            // BUG FIX: added in history
             if (m_history.size() >= 20) m_history.removeFirst();
             m_history.append(msg);
 
@@ -73,6 +75,26 @@ void ChatServer::OnReadyRead()
         }
         else if (msg.type == "typing") {
             broadcastMessage(line + "\n", sender);
+        }
+        else if (msg.type == "file") {
+            emit logMessage("[" + msg.sender + " shared a file]: " + msg.content.split('|').first());
+            if (m_history.size() >= 20) m_history.removeFirst();
+            m_history.append(msg);
+
+            broadcastMessage(line + "\n", sender);
+        }
+        else if (msg.type == "delete") {
+            emit logMessage(msg.sender + " deleted message ID: " + msg.content);
+
+            // History cleanup sync logic loop
+            for (int i = 0; i < m_history.size(); ++i) {
+                if (m_history[i].id == msg.content) {
+                    m_history.removeAt(i);
+                    break;
+                }
+            }
+            // Broadcast the exact network packet to sync other users' screens
+            broadcastMessage(line + "\n", nullptr);
         }
     }
 }
@@ -100,12 +122,12 @@ void ChatServer::onClientDisconnected()
     client->deleteLater();
 }
 
-// GUI Action: User ko kick karna
 void ChatServer::kickUser(const QString& username)
 {
     QTcpSocket* targetSocket = nullptr;
-    // Username se socket dhoondo
-    for (auto it = m_usernames.begin(); it != m_usernames.end(); ++it) {
+
+    // 🔥 BUG FIX: map/hash iterator ko safe tarike se read karein taake container detach na ho aur crash bache
+    for (auto it = m_usernames.cbegin(); it != m_usernames.cend(); ++it) {
         if (it.value() == username) {
             targetSocket = it.key();
             break;
@@ -114,31 +136,30 @@ void ChatServer::kickUser(const QString& username)
 
     if (targetSocket) {
         emit logMessage("Admin kicked user: " + username);
+   Message kickMsg;
+        kickMsg.type = "kick";
+        kickMsg.sender = "SYSTEM/ADMIN";
+        kickMsg.content = username;
+        kickMsg.timestamp = QDateTime::currentDateTime().toString("hh:mm");
 
-        // Pehle baqi sab ko leave message bhejo taake unke paas se gayeb ho jaye
-        Message leaveMsg;
-        leaveMsg.type = "leave";
-        leaveMsg.sender = username;
-        leaveMsg.content = "Kicked by Admin";
-        leaveMsg.timestamp = QDateTime::currentDateTime().toString("hh:mm");
-        broadcastMessage(leaveMsg.toBytes(), targetSocket);
-
-        // Socket close kar do, client khud hi disconnect handle kar legi
-        targetSocket->disconnectFromHost();
+        broadcastMessage(kickMsg.toBytes(), nullptr);
+   QTimer::singleShot(200, this, [targetSocket]() {
+            if (targetSocket && targetSocket->state() == QAbstractSocket::ConnectedState) {
+                targetSocket->abort();
+            }
+        });
     }
 }
-
 void ChatServer::sendGlobalAnnouncement(const QString& text)
 {
     Message msg;
-    msg.type = "chat"; // Client isay chat samajh kar addBubble karega
+    msg.type = "chat";
     msg.sender = "SYSTEM/ADMIN";
     msg.content = "⚠️ " + text;
     msg.timestamp = QDateTime::currentDateTime().toString("hh:mm");
 
     emit logMessage("[ANNOUNCEMENT]: " + text);
 
-    // 🔥 BUG FIX: Is announcement ko history mein add for new user to get the announcement as well
     if (m_history.size() >= 20) m_history.removeFirst();
     m_history.append(msg);
 
@@ -148,8 +169,10 @@ void ChatServer::sendGlobalAnnouncement(const QString& text)
 void ChatServer::broadcastMessage(const QByteArray& data, QTcpSocket* except)
 {
     for (QTcpSocket* client : m_clients) {
-        if (client != except && client->state() == QAbstractSocket::ConnectedState)
+        if (client != except && client->state() == QAbstractSocket::ConnectedState) {
             client->write(data);
+            client->flush();
+        }
     }
 }
 
@@ -164,16 +187,15 @@ void ChatServer::broadcastUserList()
 
 void ChatServer::sendHistory(QTcpSocket* client)
 {
-    // Type change karne ki zaroorat nahi, original packet hi bhej dein
     for (const Message& msg : m_history) {
         client->write(msg.toBytes());
     }
 }
+
 void ChatServer::stopServer()
 {
     emit logMessage("Shutting down server...");
 
-    // Sab clients ko inform karne ke liye system message send
     Message shutdownMsg;
     shutdownMsg.type = "leave";
     shutdownMsg.sender = "SYSTEM/ADMIN";
@@ -183,13 +205,12 @@ void ChatServer::stopServer()
     QByteArray data = shutdownMsg.toBytes();
     broadcastMessage(data, nullptr);
 
-    // Sab sockets close
     for (QTcpSocket* client : m_clients) {
         if (client->state() == QAbstractSocket::ConnectedState) {
             client->disconnectFromHost();
-            client->waitForDisconnected(500); // 500ms wait karein taake packet chala jaye
+            client->waitForDisconnected(500);
         }
     }
 
-    this->close(); // QTcpServer ko stop karein
+    this->close();
 }
